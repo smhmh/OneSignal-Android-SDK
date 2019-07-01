@@ -9,6 +9,7 @@ import com.onesignal.OneSignal.SendTagsError;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.net.HttpURLConnection;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Set;
@@ -123,6 +124,15 @@ abstract class UserStateSynchronizer {
         synchronized (syncLock) {
             return JSONUtils.generateJsonDiff(cur, changedTo, baseOutput, includeFields);
         }
+    }
+
+    protected UserState getCurrentUserState() {
+        synchronized (syncLock) {
+            if (currentUserState == null)
+                currentUserState = newUserState("CURRENT_STATE", true);
+        }
+
+        return currentUserState;
     }
 
     protected UserState getToSyncUserState() {
@@ -247,7 +257,7 @@ abstract class UserStateSynchronizer {
                 if (response400WithErrorsContaining(statusCode, response, "not a valid device_type"))
                     handlePlayerDeletedFromServer();
                 else
-                    handleNetworkFailure();
+                    handleNetworkFailure(statusCode);
             }
 
             @Override
@@ -300,7 +310,7 @@ abstract class UserStateSynchronizer {
                     if (response400WithErrorsContaining(statusCode, response, "No user with this id found"))
                         handlePlayerDeletedFromServer();
                     else
-                        handleNetworkFailure();
+                        handleNetworkFailure(statusCode);
                 }
 
                 if (jsonBody.has("tags"))
@@ -351,7 +361,7 @@ abstract class UserStateSynchronizer {
                     if (response400WithErrorsContaining(statusCode, response, "not a valid device_type"))
                         handlePlayerDeletedFromServer();
                     else
-                        handleNetworkFailure();
+                        handleNetworkFailure(statusCode);
                 }
             }
 
@@ -386,12 +396,20 @@ abstract class UserStateSynchronizer {
 
     protected abstract void onSuccessfulSync(JSONObject jsonField);
 
-    private void handleNetworkFailure() {
-        boolean retried = getNetworkHandlerThread(NetworkHandlerThread.NETWORK_HANDLER_USERSTATE).doRetry();
-        if (retried)
+    private void handleNetworkFailure(int statusCode) {
+        if (statusCode == HttpURLConnection.HTTP_FORBIDDEN) {
+            OneSignal.Log(OneSignal.LOG_LEVEL.FATAL, "403 error updating player, omitting further retries!");
+            fireNetworkFailureEvents();
             return;
+        }
 
+        boolean retried = getNetworkHandlerThread(NetworkHandlerThread.NETWORK_HANDLER_USERSTATE).doRetry();
         // If there are no more retries and still pending changes send out event of what failed to sync
+        if (!retried)
+            fireNetworkFailureEvents();
+    }
+
+    private void fireNetworkFailureEvents() {
         final JSONObject jsonBody = currentUserState.generateJsonDiff(toSyncUserState, false);
         if (jsonBody != null)
             fireEventsForUpdateFailure(jsonBody);
@@ -430,7 +448,7 @@ abstract class UserStateSynchronizer {
     //   If there are differences a network call with the changes to made
     protected UserState getUserStateForModification() {
         if (toSyncUserState == null)
-            toSyncUserState = currentUserState.deepClone("TOSYNC_STATE");
+            toSyncUserState = getCurrentUserState().deepClone("TOSYNC_STATE");
 
         scheduleSyncToServer();
 

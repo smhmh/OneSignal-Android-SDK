@@ -1,5 +1,8 @@
 package com.test.onesignal;
 
+import android.database.Cursor;
+import android.database.sqlite.SQLiteDatabase;
+
 import com.onesignal.OneSignalDbHelper;
 import com.onesignal.OneSignalPackagePrivateHelper;
 import com.onesignal.OneSignalPackagePrivateHelper.OneSignalPrefs;
@@ -10,13 +13,18 @@ import com.onesignal.ShadowGcmBroadcastReceiver;
 import com.onesignal.ShadowGoogleApiClientCompatProxy;
 import com.onesignal.ShadowNotificationManagerCompat;
 import com.onesignal.ShadowOSUtils;
+import com.onesignal.ShadowOneSignalDbHelper;
 import com.onesignal.ShadowOneSignalRestClient;
+import com.onesignal.ShadowOneSignalRestClientWithMockConnection;
 import com.onesignal.ShadowPushRegistratorGCM;
 import com.onesignal.StaticResetHelper;
 
 import org.robolectric.RuntimeEnvironment;
+import org.robolectric.shadows.ShadowSystemClock;
 import org.robolectric.util.Scheduler;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Set;
 
 import static org.robolectric.Shadows.shadowOf;
@@ -46,6 +54,8 @@ class TestHelpers {
       ShadowFirebaseAnalytics.resetStatics();
 
       ShadowGoogleApiClientCompatProxy.restSetStaticFields();
+      ShadowOneSignalDbHelper.restSetStaticFields();
+      ShadowOneSignalRestClientWithMockConnection.resetStatics();
 
       lastException = null;
 
@@ -59,7 +69,7 @@ class TestHelpers {
          e.printStackTrace();
       }
 
-      OneSignalDbHelper.getInstance(RuntimeEnvironment.application).getWritableDatabase().close();
+      OneSignalDbHelper.getInstance(RuntimeEnvironment.application).getReadableDatabase().close();
    }
 
    static void stopAllOSThreads() {
@@ -162,5 +172,44 @@ class TestHelpers {
       stopAllOSThreads();
       flushBufferedSharedPrefs();
       StaticResetHelper.restSetStaticFields();
+   }
+
+   static ArrayList<HashMap<String, Object>> getAllNotificationRecords() {
+      SQLiteDatabase readableDatabase = OneSignalDbHelper.getInstance(RuntimeEnvironment.application).getReadableDatabase();
+      Cursor cursor = readableDatabase.query(
+         OneSignalPackagePrivateHelper.NotificationTable.TABLE_NAME,
+         null,
+         null,
+         null,
+         null, // group by
+         null, // filter by row groups
+         null, // sort order, new to old
+         null // limit
+      );
+
+      ArrayList<HashMap<String, Object>> mapList = new ArrayList<>();
+      while (cursor.moveToNext()) {
+         HashMap<String, Object> map = new HashMap<>();
+         for(int i = 0; i < cursor.getColumnCount(); i++) {
+            int type = cursor.getType(i);
+            String key = cursor.getColumnName(i);
+
+             if (type == Cursor.FIELD_TYPE_INTEGER)
+                map.put(key, cursor.getLong(i));
+             else if (type == Cursor.FIELD_TYPE_FLOAT)
+                map.put(key, cursor.getFloat(i));
+             else
+                map.put(key, cursor.getString(i));
+         }
+         mapList.add(map);
+      }
+
+      cursor.close();
+
+      return mapList;
+   }
+
+   static void advanceTimeByMs(long advanceBy) {
+      ShadowSystemClock.setCurrentTimeMillis(System.currentTimeMillis() +  advanceBy);
    }
 }

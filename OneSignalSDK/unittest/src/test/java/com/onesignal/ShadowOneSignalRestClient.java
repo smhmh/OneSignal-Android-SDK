@@ -74,7 +74,8 @@ public class ShadowOneSignalRestClient {
    public static JSONObject lastPost;
    public static ArrayList<Request> requests;
    public static String lastUrl;
-   public static boolean failNext, failNextPut, failAll, failPosts;
+   public static boolean failNext, failNextPut, failAll, failPosts, failGetParams;
+   public static int failHttpCode;
    public static String failResponse, nextSuccessResponse, nextSuccessfulGETResponse;
    public static int networkCallCount;
 
@@ -103,6 +104,8 @@ public class ShadowOneSignalRestClient {
       failNextPut = false;
       failAll = false;
       failPosts = false;
+      failGetParams = false;
+      failHttpCode = 400;
 
       paramExtras = null;
 
@@ -172,7 +175,7 @@ public class ShadowOneSignalRestClient {
    private static boolean doFail(OneSignalRestClient.ResponseHandler responseHandler, boolean doFail) {
       if (failNext || failAll || doFail) {
          if (!suspendResponse(false, failResponse, responseHandler))
-            responseHandler.onFailure(400, failResponse, new Exception());
+            responseHandler.onFailure(failHttpCode, failResponse, new Exception());
          failNext = failNextPut = false;
          return true;
       }
@@ -240,8 +243,9 @@ public class ShadowOneSignalRestClient {
       responseHandler.onSuccess("{}");
    }
 
-   public static void get(final String url, final OneSignalRestClient.ResponseHandler responseHandler) {
+   public static void get(final String url, final OneSignalRestClient.ResponseHandler responseHandler, String cacheKey) {
       trackRequest(REST_METHOD.GET, null, url);
+      if (failGetParams && doFail(responseHandler, true)) return;
    
       if (nextSuccessResponse != null) {
          responseHandler.onSuccess(nextSuccessResponse);
@@ -249,10 +253,9 @@ public class ShadowOneSignalRestClient {
       }
       else {
          try {
-            JSONObject getResponseJson = new JSONObject("{\"awl_list\": {" +
-                  "\"IlIfoQBT5jXgkgn6nBsIrGJn5t0Yd91GqKAGoApIYzk=\": 1," +
-                  "\"Q3zjDf/4NxXU1QpN9WKp/iwVYNPQZ0js2EDDNO+eo0o=\": 1" +
-                  "}, \"android_sender_id\": \"87654321\"}");
+            JSONObject getResponseJson = new JSONObject(
+               "{\"awl_list\": {}, \"android_sender_id\": \"87654321\"}"
+            );
             if (paramExtras != null) {
                Iterator<String> keys = paramExtras.keys();
                while(keys.hasNext()) {
@@ -267,7 +270,7 @@ public class ShadowOneSignalRestClient {
       }
    }
 
-   public static void getSync(final String url, final OneSignalRestClient.ResponseHandler responseHandler) {
+   public static void getSync(final String url, final OneSignalRestClient.ResponseHandler responseHandler, String cacheKey) {
       trackRequest(REST_METHOD.GET, null, url);
 
       if (doFail(responseHandler)) return;
